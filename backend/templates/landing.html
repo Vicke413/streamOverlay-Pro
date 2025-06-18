@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Livesitter - Live Stream Viewer</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .video-container {
+            position: relative;
+            width: 100%;
+            max-width: 800px;
+            margin: 0 auto 20px;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        video {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+        .controls {
+            background: #333;
+            padding: 10px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .controls button {
+            padding: 8px 16px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .controls button:hover {
+            background: #0056b3;
+        }
+        .overlay-panel {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+        .overlay-form {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .overlay-form input, .overlay-form select {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .overlay-form button {
+            padding: 10px;
+            background: #28a745;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            grid-column: 1 / -1;
+        }
+        .position-inputs, .size-inputs {
+            display: flex;
+            gap: 10px;
+        }
+        .position-inputs input, .size-inputs input {
+            flex: 1;
+        }
+        .overlays-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 15px;
+        }
+        .overlay-item {
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 4px;
+            background: #f9f9f9;
+        }
+        .overlay-item button {
+            margin: 5px;
+            padding: 5px 10px;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        .delete-btn {
+            background: #dc3545;
+            color: white;
+        }
+        .edit-btn {
+            background: #ffc107;
+            color: black;
+        }
+        .video-overlays {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        .overlay {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 5px;
+            border-radius: 3px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+            white-space: nowrap;
+            overflow: hidden;
+        }
+        .overlay.text {
+            color: white;
+        }
+        .overlay.logo {
+            background: transparent;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Livesitter - Live Stream Viewer</h1>
+        
+        <div class="video-container">
+            <video id="videoPlayer" controls>
+                <source id="videoSource" src="" type="video/mp4">
+                Your browser does not support the video tag.
+            </video>
+            
+            <!-- Overlay Rendering on Video -->
+            <div id="videoOverlays" class="video-overlays">
+                <!-- Overlays will be rendered here -->
+            </div>
+            
+            <div class="controls">
+                <button onclick="loadStream()">Load Stream</button>
+                <button onclick="togglePlay()">Play/Pause</button>
+                <button onclick="toggleMute()">Mute/Unmute</button>
+            </div>
+        </div>
+
+        <div class="overlay-panel">
+            <h2>Overlay Management</h2>
+            
+            <div class="overlay-form">
+                <input type="text" id="overlayContent" placeholder="Text content or logo URL">
+                <select id="overlayType">
+                    <option value="text">Text</option>
+                    <option value="logo">Logo</option>
+                </select>
+                <input type="color" id="overlayColor" value="#ffffff">
+                <input type="number" id="fontSize" placeholder="Font size" value="16">
+                
+                <!-- Position Controls -->
+                <select id="positionPreset" onchange="updatePositionFromPreset()">
+                    <option value="custom">Custom Position</option>
+                    <option value="top-left">Top Left</option>
+                    <option value="top-right">Top Right</option>
+                    <option value="bottom-left">Bottom Left</option>
+                    <option value="bottom-right">Bottom Right</option>
+                    <option value="center">Center</option>
+                    <option value="top-center">Top Center</option>
+                    <option value="bottom-center">Bottom Center</option>
+                </select>
+                
+                <div class="position-inputs">
+                    <input type="number" id="posX" placeholder="X position" value="100" min="0">
+                    <input type="number" id="posY" placeholder="Y position" value="100" min="0">
+                </div>
+                
+                <div class="size-inputs">
+                    <input type="number" id="sizeWidth" placeholder="Width" value="200" min="10">
+                    <input type="number" id="sizeHeight" placeholder="Height" value="50" min="10">
+                </div>
+                
+                <button onclick="createOverlay()">Add Overlay</button>
+            </div>
+
+            <div class="overlays-list" id="overlaysList">
+                <!-- Overlays will be loaded here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let overlays = [];
+        let videoPlayer = document.getElementById('videoPlayer');
+
+        // Load stream URL
+        async function loadStream() {
+            try {
+                const response = await fetch('/api/stream-url');
+                const data = await response.json();
+                document.getElementById('videoSource').src = data.url;
+                videoPlayer.load();
+            } catch (error) {
+                console.error('Error loading stream:', error);
+            }
+        }
+
+        function togglePlay() {
+            if (videoPlayer.paused) {
+                videoPlayer.play();
+            } else {
+                videoPlayer.pause();
+            }
+        }
+
+        function toggleMute() {
+            videoPlayer.muted = !videoPlayer.muted;
+        }
+
+        // CRUD Operations for Overlays
+        async function loadOverlays() {
+            try {
+                const response = await fetch('/api/overlays');
+                overlays = await response.json();
+                displayOverlays();
+            } catch (error) {
+                console.error('Error loading overlays:', error);
+            }
+        }
+
+        async function createOverlay() {
+            const content = document.getElementById('overlayContent').value;
+            const type = document.getElementById('overlayType').value;
+            const color = document.getElementById('overlayColor').value || '#ffffff';
+            const fontSize = document.getElementById('fontSize').value;
+            const posX = parseInt(document.getElementById('posX').value) || 100;
+            const posY = parseInt(document.getElementById('posY').value) || 100;
+            const sizeWidth = parseInt(document.getElementById('sizeWidth').value) || 200;
+            const sizeHeight = parseInt(document.getElementById('sizeHeight').value) || 50;
+
+            if (!content) {
+                alert('Please enter content');
+                return;
+            }
+
+            const overlay = {
+                type: type,
+                content: content,
+                position: { x: posX, y: posY },
+                size: { width: sizeWidth, height: sizeHeight },
+                color: color,
+                fontSize: parseInt(fontSize)
+            };
+
+            console.log('Creating overlay with color:', color); // Debug log
+
+            try {
+                const response = await fetch('/api/overlays', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(overlay)
+                });
+                
+                if (response.ok) {
+                    document.getElementById('overlayContent').value = '';
+                    loadOverlays();
+                }
+            } catch (error) {
+                console.error('Error creating overlay:', error);
+            }
+        }
+
+        async function deleteOverlay(id) {
+            try {
+                const response = await fetch(`/api/overlays/${id}`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    loadOverlays();
+                }
+            } catch (error) {
+                console.error('Error deleting overlay:', error);
+            }
+        }
+
+        function displayOverlays() {
+            const container = document.getElementById('overlaysList');
+            const videoOverlays = document.getElementById('videoOverlays');
+            
+            // Clear both containers
+            container.innerHTML = '';
+            videoOverlays.innerHTML = '';
+
+            overlays.forEach(overlay => {
+                // Display in list
+                const div = document.createElement('div');
+                div.className = 'overlay-item';
+                div.innerHTML = `
+                    <h4>${overlay.type.toUpperCase()}</h4>
+                    <p><strong>Content:</strong> ${overlay.content}</p>
+                    <p><strong>Position:</strong> (${overlay.position.x}, ${overlay.position.y})</p>
+                    <p><strong>Size:</strong> ${overlay.size.width}x${overlay.size.height}</p>
+                    <button class="delete-btn" onclick="deleteOverlay('${overlay.id}')">Delete</button>
+                `;
+                container.appendChild(div);
+
+                // Display on video
+                const videoOverlay = document.createElement('div');
+                videoOverlay.className = `overlay ${overlay.type}`;
+                videoOverlay.style.cssText = `
+                    position: absolute;
+                    left: ${overlay.position.x}px;
+                    top: ${overlay.position.y}px;
+                    width: ${overlay.size.width}px;
+                    height: ${overlay.size.height}px;
+                    color: ${overlay.color || '#ffffff'} !important;
+                    font-size: ${overlay.fontSize}px;
+                    z-index: 1000;
+                    pointer-events: none;
+                    background: rgba(0, 0, 0, 0.7);
+                    padding: 5px;
+                    border-radius: 3px;
+                    font-weight: bold;
+                    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+                `;
+                
+                if (overlay.type === 'text') {
+                    videoOverlay.textContent = overlay.content;
+                } else {
+                    const img = document.createElement('img');
+                    img.src = overlay.content;
+                    img.alt = 'Logo';
+                    img.style.cssText = 'width: 100%; height: 100%; object-fit: contain;';
+                    videoOverlay.appendChild(img);
+                }
+                
+                videoOverlays.appendChild(videoOverlay);
+            });
+        }
+
+        // Load overlays on page load
+        window.onload = function() {
+            loadOverlays();
+        };
+
+        // Position preset handling
+        function updatePositionFromPreset() {
+            const preset = document.getElementById('positionPreset').value;
+            const videoContainer = document.querySelector('.video-container');
+            const videoWidth = videoContainer.offsetWidth;
+            const videoHeight = videoContainer.offsetHeight;
+            
+            let x, y;
+            
+            switch(preset) {
+                case 'top-left':
+                    x = 10; y = 10;
+                    break;
+                case 'top-right':
+                    x = videoWidth - 210; y = 10;
+                    break;
+                case 'bottom-left':
+                    x = 10; y = videoHeight - 60;
+                    break;
+                case 'bottom-right':
+                    x = videoWidth - 210; y = videoHeight - 60;
+                    break;
+                case 'center':
+                    x = (videoWidth - 200) / 2; y = (videoHeight - 50) / 2;
+                    break;
+                case 'top-center':
+                    x = (videoWidth - 200) / 2; y = 10;
+                    break;
+                case 'bottom-center':
+                    x = (videoWidth - 200) / 2; y = videoHeight - 60;
+                    break;
+                default:
+                    return; // Keep current values for custom
+            }
+            
+            document.getElementById('posX').value = Math.max(0, x);
+            document.getElementById('posY').value = Math.max(0, y);
+        }
+    </script>
+</body>
+</html> 
